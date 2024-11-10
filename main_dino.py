@@ -259,7 +259,7 @@ def train_dino(args):
         num_classes=args.num_classes, # Número de clases
         num_heads=0, # Número de cabezas de atención
         dropout=0.1, # Tasa de dropout
-    )
+    ).cuda()
 
     # ============ init schedulers ... ============
     lr_schedule = utils.cosine_scheduler(
@@ -413,7 +413,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 class ProportionHead(nn.Module):
-    def __init__(self, in_dim, hidden_dim=256, num_classes=0, num_heads=0, dropout=0.1):
+    def __init__(self, in_dim, hidden_dim=128, num_classes=0, num_heads=1, dropout=0.1):
         super().__init__()
         
         # Dimensiones de la arquitectura
