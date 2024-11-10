@@ -361,7 +361,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
 
             student_proportions = proportionhead(student_output)
             student_soft_props = student_proportions['soft_proportions']
-            student_hard_props = student_proportions['hard_proportions']
+            # student_hard_props = student_proportions['hard_proportions']
 
             loss_llp, metrics = props_loss(student_soft_props, batch_proportions, args.num_classes)
 
