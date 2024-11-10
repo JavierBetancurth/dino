@@ -252,6 +252,15 @@ def train_dino(args):
     if args.use_fp16:
         fp16_scaler = torch.amp.GradScaler('cuda')
 
+    # ============ preparing proportionhead ... ============
+    proportionhead = ProportionHead(
+        in_dim=args.out_dim, # Dimensión de entrada
+        hidden_dim=1024, # Dimensión oculta
+        num_classes=args.num_classes, # Número de clases
+        num_heads=2, # Número de cabezas de atención
+        dropout=0.1, # Tasa de dropout
+    )
+
     # ============ init schedulers ... ============
     lr_schedule = utils.cosine_scheduler(
         args.lr * (args.batch_size_per_gpu * utils.get_world_size()) / 256.,  # linear scaling rule
@@ -314,15 +323,6 @@ def train_dino(args):
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
-
-    # ============ preparing proportionhead ... ============
-    proportionhead = ProportionHead(
-        in_dim=args.out_dim, # Dimensión de entrada
-        hidden_dim=1024, # Dimensión oculta
-        num_classes=args.num_classes, # Número de clases
-        num_heads=2, # Número de cabezas de atención
-        dropout=0.1, # Tasa de dropout
-    )
 
 # Calcular proporciones del lote
 def calculate_class_proportions_in_batch(labels, dataset):
