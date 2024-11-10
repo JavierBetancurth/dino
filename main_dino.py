@@ -348,7 +348,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
                 param_group["weight_decay"] = wd_schedule[it]
 
         # Calcular proporciones del lote actual
-        batch_proportions = calculate_class_proportions_in_batch(labels, data_loader.dataset)
+        batch_proportions = calculate_class_proportions_in_batch(data_loader.dataset.targets, data_loader.dataset)
 
         # move images to gpu
         images = [im.cuda(non_blocking=True) for im in images]
