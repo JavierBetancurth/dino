@@ -318,9 +318,9 @@ def train_dino(args):
     # ============ preparing proportionhead ... ============
     proportionhead = ProportionHead(
         in_dim=args.out_dim, # Dimensión de entrada
-        hidden_dim=2048, # Dimensión oculta
+        hidden_dim=1024, # Dimensión oculta
         num_classes=args.num_classes, # Número de clases
-        num_heads=8, # Número de cabezas de atención
+        num_heads=2, # Número de cabezas de atención
         dropout=0.1 # Tasa de dropout
     )
 
@@ -338,7 +338,8 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
                     optimizer, lr_schedule, wd_schedule, momentum_schedule,epoch,
                     fp16_scaler, args):
     metric_logger = utils.MetricLogger(delimiter="  ")
-    header = 'Epoch: [{}/{}]'.format(epoch, args.epochs)
+    header = 'Epoch: [{}/{}]'.format(epoch, args.epochs)   
+
     for it, (images, labels) in enumerate(metric_logger.log_every(data_loader, 10, header)):
         # update weight decay and learning rate according to their schedule
         it = len(data_loader) * epoch + it  # global training iteration
@@ -347,18 +348,6 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
             if i == 0:  # only the first group is regularized
                 param_group["weight_decay"] = wd_schedule[it]
 
-        # ============ preparing proportionhead ... ============
-        proportionhead = ProportionHead(
-            in_dim=args.out_dim, # Dimensión de entrada
-            hidden_dim=2048, # Dimensión oculta
-            num_classes=args.num_classes, # Número de clases
-            num_heads=8, # Número de cabezas de atención
-            dropout=0.1 # Tasa de dropout
-        )
-
-        # Calcular proporciones del lote actual
-        batch_proportions = calculate_class_proportions_in_batch(labels, data_loader.dataset)
-
         # move images to gpu
         images = [im.cuda(non_blocking=True) for im in images]
         # teacher and student forward passes + compute dino loss
@@ -366,6 +355,9 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
             teacher_output = teacher(images[:2])  # only the 2 global views pass through the teacher
             student_output = student(images)
             loss_dino = dino_loss(student_output, teacher_output, epoch)
+
+            # Calcular proporciones del lote actual
+            batch_proportions = calculate_class_proportions_in_batch(labels, data_loader.dataset)
 
             student_proportions = proportionhead(student_output)
             student_soft_props = student_proportions['soft_proportions']
@@ -422,7 +414,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 class ProportionHead(nn.Module):
-    def __init__(self, in_dim, hidden_dim=2048, num_classes=1000, num_heads=8, dropout=0.1):
+    def __init__(self, in_dim, hidden_dim=1024, num_classes=1000, num_heads=2, dropout=0.1):
         super().__init__()
         
         # Dimensiones de la arquitectura
