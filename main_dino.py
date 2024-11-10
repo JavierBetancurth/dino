@@ -333,7 +333,6 @@ def calculate_class_proportions_in_batch(labels, dataset):
     class_proportions = class_counts.float() / total_samples_in_batch
     return class_proportions
 
-
 def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loader,
                     optimizer, lr_schedule, wd_schedule, momentum_schedule,epoch,
                     fp16_scaler, args):
