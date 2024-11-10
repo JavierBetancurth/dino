@@ -315,7 +315,7 @@ def train_dino(args):
     print('Training time {}'.format(total_time_str))
 
 
-# Calcular proporciones por lote y dataset
+# Calcular proporciones del lote
 def calculate_class_proportions_in_batch(labels, dataset):
     labels_tensor = labels.clone().detach().cuda() 
     class_counts = torch.bincount(labels_tensor, minlength=len(dataset.classes))
@@ -364,12 +364,9 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
         # Verificación de distribuciones cada 100 iteraciones
         if it % 100 == 0:
             print("\nDistribuciones en iteración", it)
-            print("True proportions in batch:", 
-                  [f"{x:.4f}" for x in batch_proportions.detach().cpu().numpy()])
-            print("Estimated proportions (s):", 
-                  [f"{x:.4f}" for x in student_proportions.detach().cpu().numpy()])
-            print("Estimated proportions (t):", 
-                  [f"{x:.4f}" for x in teacher_proportions.detach().cpu().numpy()])
+            print("True proportions in batch:", [f"{x:.4f}" for x in batch_proportions.detach().cpu().numpy()])
+            print("Estimated proportions (s):", [f"{x:.4f}" for x in student_proportions.detach().cpu().numpy()])
+            print("Estimated proportions (t):", [f"{x:.4f}" for x in teacher_proportions.detach().cpu().numpy()])
             print("Sum true:", batch_proportions.sum().item())
             print("Sum estimated (s):", student_proportions.sum().item())
             print("Sum estimated (t):", teacher_proportions.sum().item())
@@ -479,10 +476,11 @@ class ProportionAwareDINOLoss(nn.Module):
         proportion_loss = F.kl_div(
             student_proportions.log(),
             batch_proportions,
-            reduction='batchmean'
+            # reduction='batchmean'
         )
 
         self.update_center(teacher_output)
+        
         total_loss = dino_loss + self.proportion_weight * proportion_loss
         
         return {
