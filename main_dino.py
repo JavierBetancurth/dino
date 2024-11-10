@@ -255,9 +255,9 @@ def train_dino(args):
     # ============ preparing proportionhead ... ============
     proportionhead = ProportionHead(
         in_dim=args.out_dim, # Dimensión de entrada
-        hidden_dim=256, # Dimensión oculta
+        hidden_dim=128, # Dimensión oculta
         num_classes=args.num_classes, # Número de clases
-        num_heads=1, # Número de cabezas de atención
+        num_heads=0, # Número de cabezas de atención
         dropout=0.1, # Tasa de dropout
     )
 
