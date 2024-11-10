@@ -236,7 +236,7 @@ def train_dino(args):
     props_loss = ProportionLoss(
         mode=args.mode, 
         alpha=0.5, 
-        epsilon=1e-7
+        epsilon=1e-7,
     ).cuda()
 
     # ============ preparing optimizer ... ============
@@ -321,7 +321,7 @@ def train_dino(args):
         hidden_dim=1024, # Dimensión oculta
         num_classes=args.num_classes, # Número de clases
         num_heads=2, # Número de cabezas de atención
-        dropout=0.1 # Tasa de dropout
+        dropout=0.1, # Tasa de dropout
     )
 
 # Calcular proporciones del lote
