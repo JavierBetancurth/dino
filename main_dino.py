@@ -414,7 +414,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 class ProportionHead(nn.Module):
-    def __init__(self, in_dim, hidden_dim=1024, num_classes=1000, num_heads=2, dropout=0.1):
+    def __init__(self, in_dim, hidden_dim=256, num_classes=0, num_heads=2, dropout=0.1):
         super().__init__()
         
         # Dimensiones de la arquitectura
