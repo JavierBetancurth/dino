@@ -255,9 +255,9 @@ def train_dino(args):
     # ============ preparing proportionhead ... ============
     proportionhead = ProportionHead(
         in_dim=args.out_dim, # Dimensión de entrada
-        hidden_dim=1024, # Dimensión oculta
+        hidden_dim=256, # Dimensión oculta
         num_classes=args.num_classes, # Número de clases
-        num_heads=2, # Número de cabezas de atención
+        num_heads=1, # Número de cabezas de atención
         dropout=0.1, # Tasa de dropout
     )
 
@@ -414,7 +414,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 class ProportionHead(nn.Module):
-    def __init__(self, in_dim, hidden_dim=256, num_classes=0, num_heads=2, dropout=0.1):
+    def __init__(self, in_dim, hidden_dim=256, num_classes=0, num_heads=0, dropout=0.1):
         super().__init__()
         
         # Dimensiones de la arquitectura
