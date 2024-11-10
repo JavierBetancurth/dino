@@ -458,18 +458,6 @@ class ProportionHead(nn.Module):
             nn.BatchNorm1d(num_classes)
         )
         
-        # Proyector de proporciones hard
-        self.hard_proportion_projector = nn.Sequential(
-            nn.Linear(in_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, num_classes),
-            nn.BatchNorm1d(num_classes)
-        )
-        
     def forward(self, x, return_attention=False):
         # Aplicar self-attention
         attn_out, attn_weights = self.attention(x, x, x)
@@ -487,20 +475,14 @@ class ProportionHead(nn.Module):
         soft_proportions = self.soft_proportion_projector(x)
         soft_proportions = F.softmax(soft_proportions, dim=-1)
         
-        # Generar proporciones hard
-        hard_proportions = self.hard_proportion_projector(x)
-        hard_proportions = F.gumbel_softmax(hard_proportions, tau=1.0, hard=True)
-        
         if return_attention:
             return {
                 'soft_proportions': soft_proportions,
-                'hard_proportions': hard_proportions,
                 'attention_weights': attn_weights
             }
         
         return {
             'soft_proportions': soft_proportions,
-            'hard_proportions': hard_proportions
         }
 
     def get_attention_maps(self, x):
