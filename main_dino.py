@@ -126,6 +126,16 @@ def get_args_parser():
     parser.add_argument("--dist_url", default="env://", type=str, help="""url used to set up
         distributed training; see https://pytorch.org/docs/stable/distributed.html""")
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
+
+    # Proportions
+    parser.add_argument('--num_classes', type=int, default=0, 
+        help='Número de clases para las proporciones')
+    parser.add_argument('--mode', type=str, default='combined', 
+        help='Modo de calcular las proporciones')
+    parser.add_argument('--proportion_temp', type=float, default=0.1,
+        help='Temperatura para las proporciones')
+    parser.add_argument('--proportion_weight', type=float, default=0.1,
+        help='Peso para la pérdida de proporciones')
     return parser
 
 
@@ -152,6 +162,8 @@ def train_dino(args):
         pin_memory=True,
         drop_last=True,
     )
+    
+    labels = dataset.targets
     print(f"Data loaded: there are {len(dataset)} images.")
 
     # ============ building student and teacher networks ... ============
@@ -219,6 +231,12 @@ def train_dino(args):
         args.teacher_temp,
         args.warmup_teacher_temp_epochs,
         args.epochs,
+    ).cuda()
+
+    props_loss = ProportionLoss(
+        mode=args.mode, 
+        alpha=0.5, 
+        epsilon=1e-7
     ).cuda()
 
     # ============ preparing optimizer ... ============
@@ -297,6 +315,24 @@ def train_dino(args):
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
 
+    # ============ preparing proportionhead ... ============
+    proportionhead = ProportionHead(
+        in_dim=args.out_dim, # Dimensión de entrada
+        hidden_dim=2048, # Dimensión oculta
+        num_classes=args.num_classes, # Número de clases
+        num_heads=8, # Número de cabezas de atención
+        dropout=0.1 # Tasa de dropout
+    )
+
+# Calcular proporciones del lote
+def calculate_class_proportions_in_batch(labels, dataset):
+    labels_tensor = labels.clone().detach().cuda() 
+    class_counts = torch.bincount(labels_tensor, minlength=len(dataset.classes))
+    total_samples_in_batch = len(labels_tensor)
+    # Se normalizan las proporciones dividiendo por el tamaño total del lote
+    class_proportions = class_counts.float() / total_samples_in_batch
+    return class_proportions
+
 
 def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loader,
                     optimizer, lr_schedule, wd_schedule, momentum_schedule,epoch,
@@ -311,17 +347,34 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
             if i == 0:  # only the first group is regularized
                 param_group["weight_decay"] = wd_schedule[it]
 
+        # Calcular proporciones del lote actual
+        batch_proportions = calculate_class_proportions_in_batch(labels, data_loader.dataset)
+
         # move images to gpu
         images = [im.cuda(non_blocking=True) for im in images]
         # teacher and student forward passes + compute dino loss
         with torch.amp.autocast('cuda', enabled=(fp16_scaler is not None)):
             teacher_output = teacher(images[:2])  # only the 2 global views pass through the teacher
             student_output = student(images)
-            loss = dino_loss(student_output, teacher_output, epoch)
+            loss_dino = dino_loss(student_output, teacher_output, epoch)
+
+            student_proportions = proportionhead(student_output)
+            student_soft_props = student_proportions['soft_proportions']
+            student_hard_props = student_proportions['hard_proportions']
+
+            loss_llp, metrics = props_loss(student_soft_props, batch_proportions, args.num_classes)
+
+            loss = loss_dino + loss_llp
 
         if not math.isfinite(loss.item()):
             print("Loss is {}, stopping training".format(loss.item()), force=True)
             sys.exit(1)
+
+        # Verificación de distribuciones cada 100 iteraciones
+        if it % 100 == 0:
+            print("\nDistribuciones en iteración", it)
+            print("True proportions:", [f"{x:.4f}" for x in batch_proportions.cpu().numpy()])
+            print("Student proportions:", [f"{x:.4f}" for x in student_soft_props.cpu().numpy()])
 
         # student update
         optimizer.zero_grad()
@@ -359,7 +412,234 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
+class ProportionHead(nn.Module):
+    def __init__(self, in_dim, hidden_dim=2048, num_classes=1000, num_heads=8, dropout=0.1):
+        super().__init__()
+        
+        # Dimensiones de la arquitectura
+        self.in_dim = in_dim
+        self.hidden_dim = hidden_dim
+        self.num_classes = num_classes
+        
+        # Capa de atención multi-cabeza
+        self.attention = nn.MultiheadAttention(
+            embed_dim=in_dim,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True
+        )
+        
+        # Normalización y dropout para la atención
+        self.norm1 = nn.LayerNorm(in_dim)
+        self.dropout1 = nn.Dropout(dropout)
+        
+        # Feed-forward network después de la atención
+        self.ffn = nn.Sequential(
+            nn.Linear(in_dim, hidden_dim * 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim * 2, in_dim)
+        )
+        
+        # Segunda normalización
+        self.norm2 = nn.LayerNorm(in_dim)
+        self.dropout2 = nn.Dropout(dropout)
+        
+        # Proyector de proporciones soft
+        self.soft_proportion_projector = nn.Sequential(
+            nn.Linear(in_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim // 2, num_classes),
+            nn.BatchNorm1d(num_classes)
+        )
+        
+        # Proyector de proporciones hard
+        self.hard_proportion_projector = nn.Sequential(
+            nn.Linear(in_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim // 2, num_classes),
+            nn.BatchNorm1d(num_classes)
+        )
+        
+    def forward(self, x, return_attention=False):
+        # Aplicar self-attention
+        attn_out, attn_weights = self.attention(x, x, x)
+        x = self.norm1(x + self.dropout1(attn_out))
+        
+        # Aplicar feed-forward network
+        ffn_out = self.ffn(x)
+        x = self.norm2(x + self.dropout2(ffn_out))
+        
+        # Obtener embedding final (promedio si la entrada es secuencial)
+        if len(x.shape) == 3:
+            x = x.mean(dim=1)
+            
+        # Generar proporciones soft
+        soft_proportions = self.soft_proportion_projector(x)
+        soft_proportions = F.softmax(soft_proportions, dim=-1)
+        
+        # Generar proporciones hard
+        hard_proportions = self.hard_proportion_projector(x)
+        hard_proportions = F.gumbel_softmax(hard_proportions, tau=1.0, hard=True)
+        
+        if return_attention:
+            return {
+                'soft_proportions': soft_proportions,
+                'hard_proportions': hard_proportions,
+                'attention_weights': attn_weights
+            }
+        
+        return {
+            'soft_proportions': soft_proportions,
+            'hard_proportions': hard_proportions
+        }
 
+    def get_attention_maps(self, x):
+        """Método auxiliar para visualizar los mapas de atención"""
+        with torch.no_grad():
+            _, attention_weights = self.attention(x, x, x)
+        return attention_weights
+
+class ProportionLoss(nn.Module):
+    def __init__(self, mode='combined', alpha=0.5, epsilon=1e-7):
+        """
+        Inicializa la función de pérdida para proporciones
+        Args:
+            mode: Modo de operación ('combined', 'soft', 'hard')
+            alpha: Factor de peso entre pérdida soft y hard (usado solo en modo 'combined')
+            epsilon: Valor pequeño para evitar log(0)
+        """
+        super().__init__()
+        assert mode in ['combined', 'soft', 'hard'], \
+            "mode debe ser uno de: 'combined', 'soft', 'hard'"
+        self.mode = mode
+        self.alpha = alpha
+        self.epsilon = epsilon
+        self.cross_entropy = nn.CrossEntropyLoss(reduction='none')
+
+    def compute_soft_loss(self, inputs, targets):
+        """
+        Calcula la pérdida soft usando cross entropy
+        Args:
+            inputs: Predicciones del modelo [batch_size, num_classes]
+            targets: Etiquetas verdaderas [batch_size, num_classes]
+        """
+        # Aseguramos que inputs y targets estén normalizados
+        inputs = F.softmax(inputs, dim=-1)
+        targets = F.normalize(targets, p=1, dim=-1)
+        
+        # Calculamos cross entropy
+        loss = -torch.sum(targets * torch.log(inputs + self.epsilon), dim=-1)
+        return loss.mean()
+
+    def compute_hard_loss(self, inputs, targets, num_classes):
+        """
+        Calcula la pérdida hard usando distribuciones de conteo
+        Args:
+            inputs: Predicciones del modelo [batch_size, num_classes]
+            targets: Etiquetas verdaderas [batch_size, num_classes]
+            num_classes: Número de clases
+        """
+        # Obtenemos las predicciones hard
+        predicted = torch.bincount(
+            inputs.argmax(1),
+            minlength=num_classes
+        ).float()
+        
+        # Normalizamos las predicciones
+        predicted = predicted / (torch.sum(predicted) + self.epsilon)
+        
+        # Calculamos la distribución objetivo
+        target_dist = torch.mean(targets, dim=0)
+        
+        # Calculamos la pérdida KL
+        loss = torch.sum(target_dist * torch.log(
+            (target_dist + self.epsilon) / (predicted + self.epsilon)
+        ))
+        
+        return loss
+
+    def forward(self, inputs, targets, num_classes):
+        """
+        Forward pass de la función de pérdida
+        Args:
+            inputs: Predicciones del modelo [batch_size, num_classes]
+            targets: Etiquetas verdaderas [batch_size, num_classes]
+            num_classes: Número de clases
+        Returns:
+            loss: Pérdida total
+            metrics: Diccionario con pérdidas individuales
+        """
+        # Validamos las dimensiones
+        assert inputs.size() == targets.size(), \
+            f"Input size {inputs.size()} doesn't match target size {targets.size()}"
+        assert inputs.size(1) == num_classes, \
+            f"Number of classes {inputs.size(1)} doesn't match expected {num_classes}"
+
+        # Inicializamos diccionario de métricas
+        metrics = {}
+
+        # Calculamos la pérdida según el modo seleccionado
+        if self.mode == 'soft' or self.mode == 'combined':
+            loss_soft = self.compute_soft_loss(inputs, targets)
+            metrics['loss_soft'] = loss_soft.item()
+
+        if self.mode == 'hard' or self.mode == 'combined':
+            loss_hard = self.compute_hard_loss(inputs, targets, num_classes)
+            metrics['loss_hard'] = loss_hard.item()
+
+        # Determinamos la pérdida final según el modo
+        if self.mode == 'combined':
+            total_loss = self.alpha * loss_soft + (1 - self.alpha) * loss_hard
+            metrics['loss_total'] = total_loss.item()
+        elif self.mode == 'soft':
+            total_loss = loss_soft
+        else:  # mode == 'hard'
+            total_loss = loss_hard
+
+        return total_loss, metrics
+
+    @torch.no_grad()
+    def compute_metrics(self, inputs, targets, num_classes):
+        """
+        Calcula métricas adicionales para evaluación
+        Args:
+            inputs: Predicciones del modelo [batch_size, num_classes]
+            targets: Etiquetas verdaderas [batch_size, num_classes]
+            num_classes: Número de clases
+        Returns:
+            metrics: Diccionario con métricas
+        """
+        # Calculamos accuracy
+        pred_classes = inputs.argmax(1)
+        target_classes = targets.argmax(1)
+        accuracy = (pred_classes == target_classes).float().mean()
+        
+        # Calculamos distribución predicha vs real
+        pred_dist = torch.bincount(
+            pred_classes, 
+            minlength=num_classes
+        ).float() / len(pred_classes)
+        
+        target_dist = torch.mean(targets, dim=0)
+        
+        # Calculamos error absoluto medio entre distribuciones
+        distribution_error = torch.abs(pred_dist - target_dist).mean()
+        
+        return {
+            'accuracy': accuracy.item(),
+            'distribution_error': distribution_error.item(),
+            'mode': self.mode
+        }
+        
 class DINOLoss(nn.Module):
     def __init__(self, out_dim, ncrops, warmup_teacher_temp, teacher_temp,
                  warmup_teacher_temp_epochs, nepochs, student_temp=0.1,
