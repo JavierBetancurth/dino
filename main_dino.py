@@ -257,7 +257,7 @@ def train_dino(args):
         in_dim=args.out_dim, # Dimensión de entrada
         hidden_dim=128, # Dimensión oculta
         num_classes=args.num_classes, # Número de clases
-        num_heads=0, # Número de cabezas de atención
+        num_heads=1, # Número de cabezas de atención
         dropout=0.1, # Tasa de dropout
     ).cuda()
 
