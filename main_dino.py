@@ -232,7 +232,7 @@ def train_dino(args):
     # for mixed precision training
     fp16_scaler = None
     if args.use_fp16:
-        fp16_scaler = torch.cuda.amp.GradScaler()
+        fp16_scaler = torch.amp.GradScaler('cuda')
 
     # ============ init schedulers ... ============
     lr_schedule = utils.cosine_scheduler(
