@@ -347,6 +347,15 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
             if i == 0:  # only the first group is regularized
                 param_group["weight_decay"] = wd_schedule[it]
 
+        # ============ preparing proportionhead ... ============
+        proportionhead = ProportionHead(
+            in_dim=args.out_dim, # Dimensión de entrada
+            hidden_dim=2048, # Dimensión oculta
+            num_classes=args.num_classes, # Número de clases
+            num_heads=8, # Número de cabezas de atención
+            dropout=0.1 # Tasa de dropout
+        )
+
         # Calcular proporciones del lote actual
         batch_proportions = calculate_class_proportions_in_batch(labels, data_loader.dataset)
 
