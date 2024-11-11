@@ -419,7 +419,7 @@ def CalculateProportions(outputs, num_classes=0, temperature=1.0):
     return batch_proportions
 
 class ProportionLoss(nn.Module):
-    def __init__(self, mode='sce', alpha=1.0, beta=1.0, epsilon=1e-8):
+    def __init__(self, mode='sce', alpha=1.0, beta=1.0, eps=1e-8):
         """
         Args:
             mode: Modo de pérdida ('ce' para Cross Entropy, 'rce' para Reverse Cross Entropy, 'sce' para Symmetric Cross Entropy).
