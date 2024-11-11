@@ -338,7 +338,6 @@ class ProportionCalculator(nn.Module):
     def __init__(
         self,
         input_dim=65536,
-        hidden_dim=1024,
         output_dim=10,
         mode='soft',
         temperature=1.0,
