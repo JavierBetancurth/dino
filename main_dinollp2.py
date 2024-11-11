@@ -388,7 +388,7 @@ def calculate_proportions(
     # Inicialización de pesos
     def init_weights(m):
         if isinstance(m, nn.Linear):
-            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu' if mode == 'hard' else 'gelu')
+            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu' if mode == 'hard' else 'relu')
             if m.bias is not None:
                 nn.init.zeros_(m.bias)
         elif isinstance(m, nn.BatchNorm1d):
