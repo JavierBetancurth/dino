@@ -136,7 +136,7 @@ def get_args_parser():
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
 
   # Proportions
-    parser.add_argument('--num_classes_proportions', type=int, default=0, 
+    parser.add_argument('--num_classes_proportions', type=int, default=10, 
         help='Número de clases para las proporciones')
     parser.add_argument('--mode', type=str, default='combined', 
         help='Modo de calcular las proporciones')
@@ -334,89 +334,82 @@ def calculate_class_proportions_in_dataset(dataset):
     return class_proportions
 
 # === Mejora en el cálculo de proporciones ===
-class DimensionReducer(nn.Module):
-    def __init__(self, input_dim=65536, hidden_dim=1024, output_dim=10, mode='soft', dropout=0.1):
-        super().__init__()
-        
-        # Main reducer network
-        self.reducer = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim)
-        )
-        
-        # Soft proportion projector
-        self.soft_proportion_projector = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, output_dim),
-            nn.BatchNorm1d(output_dim)
-        )
-        
-        # Hard proportion projector
-        self.hard_proportion_projector = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, output_dim),
-            nn.BatchNorm1d(output_dim)
-        )
-        
-        # Mode selection
-        self.mode = mode
-    
-    def forward(self, x):
-        x = self.reducer(x)
-        
-        if self.mode == 'soft':
-            return self.soft_proportion_projector(x)
-        elif self.mode == 'hard':
-            return self.hard_proportion_projector(x)
-        else:
-            raise ValueError("Mode must be 'soft' or 'hard'")
-
-def CalculateProportions(outputs, num_classes_proportions=0, temperature=1.0):
+def calculate_proportions(
+    outputs, 
+    input_dim=65536, 
+    hidden_dim=1024, 
+    output_dim=10, 
+    mode='soft', 
+    temperature=1.0, 
+    dropout=0.1, 
+):
     """
-    Calcula proporciones a partir de embeddings de alta dimensión
+    Calcula proporciones a partir de embeddings de alta dimensión.
     
     Args:
-        outputs: tensor de forma (batch_size, 65536)
-        num_classes_proportions: número de clases objetivo
-        temperature: factor de temperatura para softmax
+        outputs: Tensor de entrada de forma (batch_size, input_dim).
+        input_dim: Dimensión de entrada de los embeddings.
+        hidden_dim: Dimensión de la capa oculta en las proyecciones.
+        output_dim: Número de clases objetivo.
+        mode: Modo de proyección, 'soft' o 'hard'.
+        temperature: Factor de temperatura para softmax.
+        dropout: Tasa de dropout.
+        tau: Parámetro de temperatura para Gumbel-Softmax.
+    
+    Returns:
+        batch_proportions: Tensor de proporciones promedio por lote.
     """
-    # Inicializar el reductor de dimensión (solo la primera vez)
-    if not hasattr(CalculateProportions, 'reducer'):
-        CalculateProportions.reducer = DimensionReducer(
-            input_dim=args.out_dim,
-            output_dim=num_classes_proportions,
-            mode='soft',
+    # Proyectores de proporciones
+    if mode == 'soft':
+        projector = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim // 2, output_dim),
+            nn.BatchNorm1d(output_dim)
         ).cuda()
+    elif mode == 'hard':
+        projector = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim // 2, output_dim),
+            nn.BatchNorm1d(output_dim)
+        ).cuda()
+    else:
+        raise ValueError("Mode must be 'soft' or 'hard'")
+
+    # Proyectar proporciones
+    projected_outputs = projector(outputs)
+
+    # Aplicar temperatura y calcular probabilidades con softmax
+    scaled_outputs = projected_outputs / temperature
     
-    # Reducir dimensionalidad
-    reduced_outputs = CalculateProportions.reducer(outputs)
-    
-    # Aplicar temperatura
-    scaled_outputs = reduced_outputs / temperature
-    
-    # Calcular probabilidades con softmax (Generar proporciones soft)
-    probs = F.softmax(scaled_outputs, dim=1)
-    # Calcular probabilidades con gumbel softmax (Generar proporciones hard)
-    # probs = F.gumbel_softmax(hard_proportions, tau=1.0, hard=True)
-    
-    # Promediar por batch
-    batch_proportions = torch.mean(probs, dim=0)
-    
-    # Normalizar para asegurar que sume 1
-    # batch_proportions = F.normalize(batch_proportions, p=1, dim=0) Redundante se comprueba que no es necesario
+    if mode == 'soft':
+        # En el modo 'soft', se utiliza el softmax
+        probs = F.softmax(scaled_outputs, dim=1)
+    elif mode == 'hard':
+        # En el modo 'hard', se utiliza el Gumbel-Softmax para obtener una distribución discreta
+        probs = F.gumbel_softmax(scaled_outputs, tau=1.0, hard=True)
+
+    # Conteo de clases para el modo 'hard'
+    if mode == 'hard':
+        # Obtener el conteo de las clases como proporciones en el espacio discreto
+        _, hard_indices = probs.max(dim=1)
+        class_counts = torch.bincount(hard_indices, minlength=output_dim)
+        batch_proportions = class_counts.float() / outputs.size(0)
+    else:
+        # Calcular proporciones promedio por lote en modo 'soft'
+        batch_proportions = torch.mean(probs, dim=0)
     
     return batch_proportions
+
 
 class ProportionLoss(nn.Module):
     def __init__(self, mode='sce', alpha=1.0, beta=1.0, epsilon=1e-8):
@@ -505,17 +498,25 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
             # student_global_views = student_output[:2 * args.batch_size_per_gpu]
 
             # Calcular proporciones estimadas usando la nueva función
-            estimated_proportions_s = CalculateProportions(
+            estimated_proportions_s = calculate_proportions(
                 student_output,
-                num_classes_proportions=args.num_classes_proportions, 
+                input_dim=args.out_dim,
+                hidden_dim=1024,
+                output_dim=args.num_classes_proportions, 
+                mode='soft', 
                 temperature=0.1,
+                dropout=0.1,   
             )
 
           # Calcular proporciones estimadas usando la nueva función
-            estimated_proportions_t = CalculateProportions(
+            estimated_proportions_t = calculate_proportions(
                 teacher_output,
-                num_classes_proportions=args.num_classes_proportions, 
+                input_dim=args.out_dim,
+                hidden_dim=1024,
+                output_dim=args.num_classes_proportions, 
+                mode='soft', 
                 temperature=args.teacher_temp,
+                dropout=0.1, 
             )
 
             # Calcular proporciones verdaderas del batch
