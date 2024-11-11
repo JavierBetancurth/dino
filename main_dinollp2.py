@@ -119,8 +119,10 @@ def get_args_parser():
         Used for small local view cropping of multi-crop.""")
 
     # losses parameters
-    parser.add_argument('--alpha', type=float, default=0.8, help="""alpha parameter defined to 
-        weight between dino and kl losses.""")
+    parser.add_argument('--alpha', type=float, default=1.0, help="""alpha parameter defined to 
+        weight between sce loss.""")
+    parser.add_argument('--beta', type=float, default=1.0, help="""beta parameter defined to 
+        weight between sce loss.""")
 
     # Misc
     parser.add_argument('--data_path', default='/path/to/imagenet/train/', type=str,
