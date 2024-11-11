@@ -524,7 +524,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
             # true_proportions = torch.tensor(class_proportions, dtype=torch.float16).cuda()
             
             # Calcular pérdida LLP
-            loss_llp = proportion_loss(estimated_proportions, true_proportions)
+            loss_llp = proportion_loss(estimated_proportions_s, true_proportions)
             
             # Combinar pérdidas
             loss = loss_dino + loss_llp
