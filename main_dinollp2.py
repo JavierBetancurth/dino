@@ -505,7 +505,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
             # student_global_views = student_output[:2 * args.batch_size_per_gpu]
 
             # Calcular proporciones estimadas usando la nueva función
-            estimated_proportions_s = calculate_proportions(
+            estimated_proportions_s = CalculateProportions(
                 student_output,
                 num_classes=args.num_classes, 
                 temperature=0.1,
