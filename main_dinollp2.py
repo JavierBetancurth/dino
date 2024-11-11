@@ -394,7 +394,7 @@ def CalculateProportions(outputs, num_classes=0, temperature=1.0):
     # Inicializar el reductor de dimensión (solo la primera vez)
     if not hasattr(CalculateProportions, 'reducer'):
         CalculateProportions.reducer = DimensionReducer(
-            input_dim=outputs.shape[1],
+            input_dim=args.out_dim,
             output_dim=num_classes,
             mode='soft',
         ).cuda()
