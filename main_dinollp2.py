@@ -136,7 +136,7 @@ def get_args_parser():
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
 
   # Proportions
-    parser.add_argument('--num_classes', type=int, default=0, 
+    parser.add_argument('--num_classes_proportions', type=int, default=0, 
         help='Número de clases para las proporciones')
     parser.add_argument('--mode', type=str, default='combined', 
         help='Modo de calcular las proporciones')
@@ -382,20 +382,20 @@ class DimensionReducer(nn.Module):
         else:
             raise ValueError("Mode must be 'soft' or 'hard'")
 
-def CalculateProportions(outputs, num_classes=0, temperature=1.0):
+def CalculateProportions(outputs, num_classes_proportions=0, temperature=1.0):
     """
     Calcula proporciones a partir de embeddings de alta dimensión
     
     Args:
         outputs: tensor de forma (batch_size, 65536)
-        num_classes: número de clases objetivo
+        num_classes_proportions: número de clases objetivo
         temperature: factor de temperatura para softmax
     """
     # Inicializar el reductor de dimensión (solo la primera vez)
     if not hasattr(CalculateProportions, 'reducer'):
         CalculateProportions.reducer = DimensionReducer(
             input_dim=args.out_dim,
-            output_dim=num_classes,
+            output_dim=num_classes_proportions,
             mode='soft',
         ).cuda()
     
@@ -437,8 +437,8 @@ class ProportionLoss(nn.Module):
         """
         Calcular la pérdida de acuerdo al modo seleccionado.
         Args:
-            inputs: Predicciones del modelo [batch_size, num_classes].
-            targets: Etiquetas verdaderas [batch_size, num_classes].
+            inputs: Predicciones del modelo [batch_size, num_classes_proportions].
+            targets: Etiquetas verdaderas [batch_size, num_classes_proportions].
         """
         if self.mode == 'ce':
             return self.ce_loss(inputs, targets)
@@ -507,14 +507,14 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
             # Calcular proporciones estimadas usando la nueva función
             estimated_proportions_s = CalculateProportions(
                 student_output,
-                num_classes=args.num_classes, 
+                num_classes_proportions=args.num_classes_proportions, 
                 temperature=0.1,
             )
 
           # Calcular proporciones estimadas usando la nueva función
             estimated_proportions_t = CalculateProportions(
                 teacher_output,
-                num_classes=args.num_classes, 
+                num_classes_proportions=args.num_classes_proportions, 
                 temperature=args.teacher_temp,
             )
 
