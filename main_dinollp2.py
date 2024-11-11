@@ -470,7 +470,7 @@ class ProportionLoss(nn.Module):
         Calcula la Reverse Cross Entropy: H(p, q).
         """
         # Asegurarse de que `targets` estén normalizados como probabilidades (q)
-        # targets = F.normalize(targets, p=1, dim=-1)
+        targets = F.normalize(targets, p=1, dim=-1)
         targets = torch.clamp(targets, self.epsilon, 1 - self.epsilon)
         # Calcular la pérdida de Reverse Cross Entropy
         rce_loss = -torch.sum(inputs * torch.log(targets), dim=-1)
