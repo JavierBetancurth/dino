@@ -544,8 +544,8 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
         if it % 100 == 0:  # Verificar cada 100 iteraciones
             print("\nDistribuciones en iteración", it)
             print("True proportions in batch:", [f"{x:.4f}" for x in true_proportions.cpu().numpy()])
-            print("Estimated proportions (s):", [f"{x:.4f}" for x in estimated_proportions_s.cpu().numpy()])
-            print("Estimated proportions (t):", [f"{x:.4f}" for x in estimated_proportions_t.cpu().numpy()])
+            print("Estimated proportions (s):", [f"{x:.4f}" for x in estimated_proportions_s.detach().cpu().numpy()])
+            print("Estimated proportions (t):", [f"{x:.4f}" for x in estimated_proportions_t.detach().cpu().numpy()])
             print("Sum true:", true_proportions.sum().item())
             print("Sum estimated (s):", estimated_proportions_s.sum().item())
             print("Sum estimated (t):", estimated_proportions_t.sum().item())
