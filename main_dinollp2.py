@@ -385,6 +385,18 @@ def calculate_proportions(
     else:
         raise ValueError("Mode must be 'soft' or 'hard'")
 
+    # Inicialización de pesos
+    def init_weights(m):
+        if isinstance(m, nn.Linear):
+            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu' if mode == 'hard' else 'gelu')
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
+        elif isinstance(m, nn.BatchNorm1d):
+            nn.init.ones_(m.weight)
+            nn.init.zeros_(m.bias)
+
+    projector.apply(init_weights)
+
     # Proyectar proporciones
     projected_outputs = projector(outputs)
 
@@ -448,8 +460,9 @@ class ProportionLoss(nn.Module):
         """
         # Asegurarse de que `inputs` sean probabilidades (p)
         # inputs = F.softmax(inputs, dim=-1)
+        # inputs = torch.clamp(inputs, self.epsilon, 1 - self.epsilon)
         # Calcular la pérdida de Cross Entropy
-        ce_loss = -torch.sum(targets * torch.log(inputs + self.epsilon), dim=-1)
+        ce_loss = -torch.sum(targets * torch.log(inputs), dim=-1)
         return ce_loss.mean()
 
     def rce_loss(self, inputs, targets):
@@ -458,8 +471,9 @@ class ProportionLoss(nn.Module):
         """
         # Asegurarse de que `targets` estén normalizados como probabilidades (q)
         # targets = F.normalize(targets, p=1, dim=-1)
+        # targets = torch.clamp(targets, self.epsilon, 1 - self.epsilon)
         # Calcular la pérdida de Reverse Cross Entropy
-        rce_loss = -torch.sum(inputs * torch.log(targets + self.epsilon), dim=-1)
+        rce_loss = -torch.sum(inputs * torch.log(targets), dim=-1)
         return rce_loss.mean()
 
 def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loader,
