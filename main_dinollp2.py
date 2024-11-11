@@ -419,7 +419,7 @@ def CalculateProportions(outputs, num_classes=0, temperature=1.0):
     return batch_proportions
 
 class ProportionLoss(nn.Module):
-    def __init__(self, mode='sce', alpha=1.0, beta=1.0, eps=1e-8):
+    def __init__(self, mode='sce', alpha=1.0, beta=1.0, epsilon=1e-8):
         """
         Args:
             mode: Modo de pérdida ('ce' para Cross Entropy, 'rce' para Reverse Cross Entropy, 'sce' para Symmetric Cross Entropy).
@@ -480,7 +480,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
         mode='sce',
         alpha=args.alpha, 
         beta=args.beta, 
-        eps=1e-8
+        epsilon=1e-8
     ).cuda()
                                               
     for it, (images, labels) in enumerate(metric_logger.log_every(data_loader, 10, header)):
