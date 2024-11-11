@@ -361,30 +361,32 @@ def calculate_proportions(
     """
     # Proyectores de proporciones
     if mode == 'soft':
-        projector = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, output_dim),
-            nn.BatchNorm1d(output_dim)
-        ).cuda()
+        projector = nn.Linear(input_dim, output_dim).cuda()
+            # nn.Sequential(
+            # nn.Linear(input_dim, hidden_dim),
+            # nn.GELU(),
+            # nn.Dropout(dropout),
+            # nn.Linear(hidden_dim, hidden_dim // 2),
+            # nn.GELU(),
+            # nn.Dropout(dropout),
+            # nn.Linear(hidden_dim // 2, output_dim),
+            # nn.BatchNorm1d(output_dim)
+        # ).cuda()
     elif mode == 'hard':
-        projector = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, output_dim),
-            nn.BatchNorm1d(output_dim)
-        ).cuda()
+        projector = nn.Linear(input_dim, output_dim).cuda()
+            # nn.Sequential(
+            # nn.Linear(input_dim, hidden_dim),
+            # nn.ReLU(),
+            # nn.Dropout(dropout),
+            # nn.Linear(hidden_dim, hidden_dim // 2),
+            # nn.ReLU(),
+            # nn.Dropout(dropout),
+            # nn.Linear(hidden_dim // 2, output_dim),
+            # nn.BatchNorm1d(output_dim)
+        # ).cuda()
     else:
         raise ValueError("Mode must be 'soft' or 'hard'")
-
+    '''
     # Inicialización de pesos
     def init_weights(m):
         if isinstance(m, nn.Linear):
@@ -396,7 +398,7 @@ def calculate_proportions(
             nn.init.zeros_(m.bias)
 
     projector.apply(init_weights)
-
+    '''
     # Proyectar proporciones
     projected_outputs = projector(outputs)
 
@@ -422,6 +424,13 @@ def calculate_proportions(
     
     return batch_proportions
 
+class SimpleProjector(nn.Module):
+    def __init__(self, input_dim=65450, output_dim=10):
+        super().__init__()
+        self.projector = nn.Linear(input_dim, output_dim)
+        
+    def forward(self, x):
+        return self.projector(x)
 
 class ProportionLoss(nn.Module):
     def __init__(self, mode='sce', alpha=1.0, beta=1.0, epsilon=1e-8):
