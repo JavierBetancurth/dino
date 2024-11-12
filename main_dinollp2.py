@@ -242,7 +242,7 @@ def train_dino(args):
 
     # ============ preparing proportion loss ... ============
     proportion_loss = ProportionLoss(
-        mode='sce',
+        mode='ce',
         alpha=args.alpha, 
         beta=args.beta, 
         epsilon=1e-8
@@ -366,9 +366,9 @@ class ProportionCalculator(nn.Module):
         
         # Creamos el projector como parte del módulo
         if mode == 'soft':
-            self.projector = nn.Linear(input_dim, output_dim)
+            self.projector = nn.Linear(input_dim, output_dim, bias=False)
         elif mode == 'hard':
-            self.projector = nn.Linear(input_dim, output_dim)
+            self.projector = nn.Linear(input_dim, output_dim, bias=False)
         else:
             raise ValueError("Mode must be 'soft' or 'hard'")
         
