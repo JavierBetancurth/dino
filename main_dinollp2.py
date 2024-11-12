@@ -308,7 +308,7 @@ def train_dino(args):
         # ============ training one epoch of DINO ... ============
         train_stats = train_one_epoch(student, teacher, teacher_without_ddp, dino_loss,
             data_loader, optimizer, lr_schedule, wd_schedule, momentum_schedule,
-            epoch, fp16_scaler, proportion_calculator, args)
+            epoch, fp16_scaler, proportion_loss, proportion_calculator, args)
 
         # ============ writing logs ... ============
         save_dict = {
@@ -494,7 +494,7 @@ class ProportionLoss(nn.Module):
 
 def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loader,
                     optimizer, lr_schedule, wd_schedule, momentum_schedule,epoch,
-                    fp16_scaler, proportion_calculator, args): 
+                    fp16_scaler, proportion_loss, proportion_calculator, args): 
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Epoch: [{}/{}]'.format(epoch, args.epochs)
                                               
