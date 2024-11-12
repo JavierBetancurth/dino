@@ -416,7 +416,7 @@ class ProportionAwareDINOLoss(nn.Module):
     def __init__(self, out_dim, ncrops, warmup_teacher_temp, teacher_temp,
                  warmup_teacher_temp_epochs, nepochs, num_classes, 
                  student_temp=0.1, center_momentum=0.9, 
-                 proportion_weight=0.1, proportion_temp=0.1):
+                 proportion_weight=1.0, proportion_temp=0.1):
         super().__init__()
         self.student_temp = student_temp
         self.center_momentum = center_momentum
@@ -424,7 +424,8 @@ class ProportionAwareDINOLoss(nn.Module):
         self.proportion_weight = proportion_weight
         self.proportion_temp = proportion_temp
         self.register_buffer("center", torch.zeros(1, out_dim))
-        
+
+        '''
         # Añadir proyector de proporciones dedicado
         self.proportion_projector = nn.Sequential(
             nn.Linear(out_dim, 2048),
@@ -432,6 +433,9 @@ class ProportionAwareDINOLoss(nn.Module):
             nn.Linear(2048, num_classes),
             nn.BatchNorm1d(num_classes)
         )
+        '''
+
+        self.proportion_projector = nn.Linear(out_dim, num_classes)
         
         self.teacher_temp_schedule = np.concatenate((
             np.linspace(warmup_teacher_temp,
