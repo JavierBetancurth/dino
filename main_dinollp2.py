@@ -423,11 +423,12 @@ class ProportionCalculator(nn.Module):
                 
                 # Normalizamos los conteos
                 batch_proportions = class_counts / outputs.size(0)
-            
+            '''
             # Usamos straight-through estimator para el gradiente
             batch_proportions = (
                 batch_proportions + probs.mean(dim=0) - probs.mean(dim=0).detach()
             )
+            '''
         
         return batch_proportions, probs
 
