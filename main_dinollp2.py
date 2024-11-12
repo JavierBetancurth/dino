@@ -267,7 +267,7 @@ def train_dino(args):
         output_dim=args.num_classes_proportions, 
         mode='soft',                    
         temperature=0.1,                
-        dropout=0.1                    
+        # dropout=0.1                    
     ).cuda()
 
     # ============ init schedulers ... ============
@@ -358,7 +358,7 @@ class ProportionCalculator(nn.Module):
         output_dim=10,
         mode='soft',
         temperature=1.0,
-        dropout=0.1
+        # dropout=0.1
     ):
         super().__init__()
         self.mode = mode
@@ -385,8 +385,8 @@ class ProportionCalculator(nn.Module):
             mode='fan_out',
             nonlinearity='relu'
         )
-        if self.projector.bias is not None:
-            nn.init.zeros_(self.projector.bias)
+        # if self.projector.bias is not None:
+            # nn.init.zeros_(self.projector.bias)
     
     def forward(self, outputs):
         """
@@ -517,9 +517,9 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
 
             # Usar la salida del estudiante para las proporciones
             # Tomamos solo las primeras dos vistas (globales) del estudiante
-            # student_global_views = student_output[:2 * args.batch_size_per_gpu]
+            student_global_views = student_output[:2 * args.batch_size_per_gpu]
 
-            estimated_proportions_s, probs = proportion_calculator(student_output)
+            estimated_proportions_s, probs = proportion_calculator(student_global_views)
             estimated_proportions_t, probs = proportion_calculator(teacher_output)
 
             '''
@@ -546,13 +546,12 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
 
             # Calcular proporciones verdaderas del batch
             true_proportions = calculate_class_proportions_in_batch(labels, data_loader.dataset)
-            # true_proportions = torch.tensor(class_proportions, dtype=torch.float16).cuda()
             
             # Calcular pérdida LLP
             loss_llp = proportion_loss(estimated_proportions_s, true_proportions)
             
             # Combinar pérdidas
-            loss = loss_dino + loss_llp
+            loss = loss_dino + 0.5 * loss_llp
 
         if not math.isfinite(loss.item()):
             print("Loss is {}, stopping training".format(loss.item()), force=True)
