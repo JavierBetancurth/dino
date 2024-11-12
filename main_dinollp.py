@@ -476,7 +476,7 @@ class ProportionAwareDINOLoss(nn.Module):
         proportion_loss = F.kl_div(
             student_proportions.log(),
             batch_proportions,
-            # reduction='batchmean'
+            reduction='batchmean'
         )
 
         self.update_center(teacher_output)
