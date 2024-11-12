@@ -240,6 +240,14 @@ def train_dino(args):
         args.epochs,
     ).cuda()
 
+    # ============ preparing proportion loss ... ============
+    proportion_loss = ProportionLoss(
+        mode='sce',
+        alpha=args.alpha, 
+        beta=args.beta, 
+        epsilon=1e-8
+    ).cuda()
+
     # ============ preparing optimizer ... ============
     params_groups = utils.get_params_groups(student)
     if args.optimizer == "adamw":
@@ -252,6 +260,15 @@ def train_dino(args):
     fp16_scaler = None
     if args.use_fp16:
         fp16_scaler = torch.amp.GradScaler()
+
+    # Inicializar el reductor de dimension
+    proportion_calculator = ProportionCalculator(
+        input_dim=args.out_dim,                   
+        output_dim=args.num_classes_proportions, 
+        mode='soft',                    
+        temperature=0.1,                
+        dropout=0.1                    
+    )
 
     # ============ init schedulers ... ============
     lr_schedule = utils.cosine_scheduler(
@@ -480,22 +497,6 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
                     fp16_scaler, args): 
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Epoch: [{}/{}]'.format(epoch, args.epochs)
-
-    # Inicializar la perdida de proporción
-    proportion_loss = ProportionLoss(
-        mode='sce',
-        alpha=args.alpha, 
-        beta=args.beta, 
-        epsilon=1e-8
-    ).cuda()
-
-    proportion_calculator = ProportionCalculator(
-        input_dim=args.out_dim,                   
-        output_dim=args.num_classes_proportions, 
-        mode='soft',                    
-        temperature=0.1,                
-        dropout=0.1                    
-    )
                                               
     for it, (images, labels) in enumerate(metric_logger.log_every(data_loader, 10, header)):
         
