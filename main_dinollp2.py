@@ -268,7 +268,7 @@ def train_dino(args):
         mode='soft',                    
         temperature=0.1,                
         dropout=0.1                    
-    )
+    ).cuda()
 
     # ============ init schedulers ... ============
     lr_schedule = utils.cosine_scheduler(
