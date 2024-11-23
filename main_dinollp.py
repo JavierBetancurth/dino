@@ -135,7 +135,6 @@ def get_args_parser():
         help='Temperatura para las proporciones')
     parser.add_argument('--proportion_weight', type=float, default=0.1,
         help='Peso para la pérdida de proporciones')
-
     return parser
 
 
@@ -162,9 +161,7 @@ def train_dino(args):
         pin_memory=True,
         drop_last=True,
     )
-
-    labels = dataset.targets
-
+    
     print(f"Data loaded: there are {len(dataset)} images.")
 
     # ============ building student and teacher networks ... ============
