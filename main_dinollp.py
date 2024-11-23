@@ -473,22 +473,22 @@ class LLPLoss(nn.Module):
         self.student_to_classes = nn.Linear(out_dim, num_classes)
         self.teacher_to_classes = nn.Linear(out_dim, num_classes)
 
-    def forward(self, student_outputs, teacher_outputs, true_proportions):
+    def forward(self, student_output, teacher_output, true_proportions):
         """
         Args:
-            student_outputs: Predictions from the student model (logits in `out_dim` space).
-            teacher_outputs: Predictions from the teacher model (logits in `out_dim` space).
+            student_output: Predictions from the student model (logits in `out_dim` space).
+            teacher_output: Predictions from the teacher model (logits in `out_dim` space).
             true_proportions: Target proportions for the batch (1D tensor with class proportions).
         """
         # Project outputs to class probabilities
-        student_outputs = self.student_to_classes(student_outputs)
-        teacher_outputs = self.teacher_to_classes(teacher_outputs)
+        student_output = self.student_to_classes(student_outputs)
+        teacher_output = self.teacher_to_classes(teacher_outputs)
 
         # Compute proportions
-        teacher_probs = F.softmax(teacher_outputs, dim=1)
+        teacher_probs = F.softmax(teacher_output, dim=1)
         teacher_proportions = teacher_probs.mean(dim=0)  # Average over the batch
 
-        student_probs = F.softmax(student_outputs, dim=1)
+        student_probs = F.softmax(student_output, dim=1)
         student_proportions = student_probs.mean(dim=0)  # Average over the batch
 
         # Compare teacher proportions with student proportions
