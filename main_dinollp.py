@@ -328,7 +328,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
                     fp16_scaler, args):
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Epoch: [{}/{}]'.format(epoch, args.epochs)
-    for it, (images, _) in enumerate(metric_logger.log_every(data_loader, 10, header)):
+    for it, (images, labels) in enumerate(metric_logger.log_every(data_loader, 10, header)):
         # update weight decay and learning rate according to their schedule
         it = len(data_loader) * epoch + it  # global training iteration
         for i, param_group in enumerate(optimizer.param_groups):
@@ -343,6 +343,9 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
             teacher_output = teacher(images[:2])  # only the 2 global views pass through the teacher
             student_output = student(images)
             loss_dino = dino_loss(student_output, teacher_output, epoch)
+
+            # Calcular proporciones verdaderas del batch
+            true_proportions = calculate_class_proportions_in_batch(labels, data_loader.dataset)
             
             # Calcular la pérdida
             loss_llp = = llp_loss(student_output, teacher_output, true_proportions)
