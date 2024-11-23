@@ -306,6 +306,23 @@ def train_dino(args):
     print('Training time {}'.format(total_time_str))
 
 
+# Calcular proporciones por lote y dataset
+def calculate_class_proportions_in_batch(labels, dataset):
+    labels_tensor = labels.clone().detach().cuda() 
+    class_counts = torch.bincount(labels_tensor, minlength=len(dataset.classes))
+    total_samples_in_batch = len(labels_tensor)
+    # Normalizar las proporciones dividiendo por el tamaño total del lote
+    class_proportions = (class_counts.float() / total_samples_in_batch).half()
+    return class_proportions
+
+def calculate_class_proportions_in_dataset(dataset):
+    all_labels = torch.tensor(dataset.targets, dtype=torch.long, device='cuda')
+    class_counts = torch.bincount(all_labels, minlength=len(dataset.classes))
+    # Calcular proporciones globales basadas en el total de imágenes
+    total_samples = len(all_labels)
+    class_proportions = (class_counts.float() / total_samples).half()
+    return class_proportions
+
 def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loader,
                     optimizer, lr_schedule, wd_schedule, momentum_schedule,epoch,
                     fp16_scaler, args):
