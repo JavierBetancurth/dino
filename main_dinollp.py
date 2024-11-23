@@ -105,14 +105,14 @@ def get_args_parser():
     parser.add_argument('--drop_path_rate', type=float, default=0.1, help="stochastic depth rate")
 
     # Multi-crop parameters
-    parser.add_argument('--global_crops_scale', type=float, nargs='+', default=(0.32, 1.),
+    parser.add_argument('--global_crops_scale', type=float, nargs='+', default=(0.4, 1.),
         help="""Scale range of the cropped image before resizing, relatively to the origin image.
         Used for large global view cropping. When disabling multi-crop (--local_crops_number 0), we
         recommand using a wider range of scale ("--global_crops_scale 0.14 1." for example)""")
     parser.add_argument('--local_crops_number', type=int, default=8, help="""Number of small
         local views to generate. Set this parameter to 0 to disable multi-crop training.
         When disabling multi-crop we recommend to use "--global_crops_scale 0.14 1." """)
-    parser.add_argument('--local_crops_scale', type=float, nargs='+', default=(0.05, 0.32),
+    parser.add_argument('--local_crops_scale', type=float, nargs='+', default=(0.05, 0.4),
         help="""Scale range of the cropped image before resizing, relatively to the origin image.
         Used for small local view cropping of multi-crop.""")
 
@@ -122,19 +122,10 @@ def get_args_parser():
     parser.add_argument('--output_dir', default=".", type=str, help='Path to save logs and checkpoints.')
     parser.add_argument('--saveckp_freq', default=20, type=int, help='Save checkpoint every x epochs.')
     parser.add_argument('--seed', default=0, type=int, help='Random seed.')
-    parser.add_argument('--num_workers', default=min(10, os.cpu_count()), type=int,
-        help='number of data loading workers per GPU')
+    parser.add_argument('--num_workers', default=10, type=int, help='Number of data loading workers per GPU.')
     parser.add_argument("--dist_url", default="env://", type=str, help="""url used to set up
         distributed training; see https://pytorch.org/docs/stable/distributed.html""")
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
-
-    # Añadir argumentos para proporciones
-    parser.add_argument('--num_classes', type=int, default=0, 
-        help='Número de clases para las proporciones')
-    parser.add_argument('--proportion_temp', type=float, default=0.1,
-        help='Temperatura para las proporciones')
-    parser.add_argument('--proportion_weight', type=float, default=0.1,
-        help='Peso para la pérdida de proporciones')
     return parser
 
 
@@ -161,7 +152,6 @@ def train_dino(args):
         pin_memory=True,
         drop_last=True,
     )
-    
     print(f"Data loaded: there are {len(dataset)} images.")
 
     # ============ building student and teacher networks ... ============
@@ -208,12 +198,12 @@ def train_dino(args):
         teacher = nn.SyncBatchNorm.convert_sync_batchnorm(teacher)
 
         # we need DDP wrapper to have synchro batch norms working...
-        teacher = nn.parallel.DistributedDataParallel(teacher, device_ids=[args.gpu], find_unused_parameters=True)
+        teacher = nn.parallel.DistributedDataParallel(teacher, device_ids=[args.gpu])
         teacher_without_ddp = teacher.module
     else:
         # teacher_without_ddp and teacher are the same thing
         teacher_without_ddp = teacher
-    student = nn.parallel.DistributedDataParallel(student, device_ids=[args.gpu], find_unused_parameters=True)
+    student = nn.parallel.DistributedDataParallel(student, device_ids=[args.gpu])
     # teacher and student start with the same weights
     teacher_without_ddp.load_state_dict(student.module.state_dict())
     # there is no backpropagation through the teacher, so no need for gradients
@@ -222,19 +212,13 @@ def train_dino(args):
     print(f"Student and Teacher are built: they are both {args.arch} network.")
 
     # ============ preparing loss ... ============
-    if args.num_classes == 0:
-        args.num_classes = len(dataset.classes)
-    
-    dino_loss = ProportionAwareDINOLoss(
+    dino_loss = DINOLoss(
         args.out_dim,
-        args.local_crops_number + 2,
+        args.local_crops_number + 2,  # total number of crops = 2 global crops + local_crops_number
         args.warmup_teacher_temp,
         args.teacher_temp,
         args.warmup_teacher_temp_epochs,
         args.epochs,
-        num_classes=args.num_classes,
-        proportion_weight=args.proportion_weight,
-        proportion_temp=args.proportion_temp
     ).cuda()
 
     # ============ preparing optimizer ... ============
@@ -246,7 +230,9 @@ def train_dino(args):
     elif args.optimizer == "lars":
         optimizer = utils.LARS(params_groups)  # to use with convnet and large batches
     # for mixed precision training
-    fp16_scaler = torch.amp.GradScaler('cuda') if args.use_fp16 else None
+    fp16_scaler = None
+    if args.use_fp16:
+        fp16_scaler = torch.cuda.amp.GradScaler()
 
     # ============ init schedulers ... ============
     lr_schedule = utils.cosine_scheduler(
@@ -312,24 +298,12 @@ def train_dino(args):
     print('Training time {}'.format(total_time_str))
 
 
-# Calcular proporciones del lote
-def calculate_class_proportions_in_batch(labels, dataset):
-    labels_tensor = labels.clone().detach().cuda() 
-    class_counts = torch.bincount(labels_tensor, minlength=len(dataset.classes))
-    total_samples_in_batch = len(labels_tensor)
-    
-    # Normalizamos las proporciones dividiendo por el tamaño total del lote
-    class_proportions = class_counts.float() / total_samples_in_batch
-    
-    return class_proportions
-
-
 def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loader,
-                    optimizer, lr_schedule, wd_schedule, momentum_schedule, epoch,
+                    optimizer, lr_schedule, wd_schedule, momentum_schedule,epoch,
                     fp16_scaler, args):
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Epoch: [{}/{}]'.format(epoch, args.epochs)
-    for it, (images, labels) in enumerate(metric_logger.log_every(data_loader, 10, header)):
+    for it, (images, _) in enumerate(metric_logger.log_every(data_loader, 10, header)):
         # update weight decay and learning rate according to their schedule
         it = len(data_loader) * epoch + it  # global training iteration
         for i, param_group in enumerate(optimizer.param_groups):
@@ -337,38 +311,17 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
             if i == 0:  # only the first group is regularized
                 param_group["weight_decay"] = wd_schedule[it]
 
-        # Calcular proporciones del lote actual
-        batch_proportions = calculate_class_proportions_in_batch(labels, data_loader.dataset)
-
         # move images to gpu
         images = [im.cuda(non_blocking=True) for im in images]
         # teacher and student forward passes + compute dino loss
-        with torch.amp.autocast('cuda', enabled=fp16_scaler is not None):
+        with torch.cuda.amp.autocast(fp16_scaler is not None):
             teacher_output = teacher(images[:2])  # only the 2 global views pass through the teacher
             student_output = student(images)
-            loss_dict = dino_loss(student_output, teacher_output, epoch, batch_proportions)
-            
-            loss = loss_dict['total_loss']
-            dino_loss_value = loss_dict['dino_loss']
-            proportion_loss_value = loss_dict['proportion_loss']
-            student_proportions = loss_dict['student_proportions']
-            teacher_proportions = loss_dict['teacher_proportions']
+            loss = dino_loss(student_output, teacher_output, epoch)
 
         if not math.isfinite(loss.item()):
             print("Loss is {}, stopping training".format(loss.item()), force=True)
             sys.exit(1)
-
-        # Verificación de distribuciones cada 100 iteraciones
-        if it % 100 == 0:
-            print("\nDistribuciones en iteración", it)
-            print("True proportions in batch:", [f"{x:.4f}" for x in batch_proportions.detach().cpu().numpy()])
-            print("Estimated proportions (s):", [f"{x:.4f}" for x in student_proportions.detach().cpu().numpy()])
-            print("Estimated proportions (t):", [f"{x:.4f}" for x in teacher_proportions.detach().cpu().numpy()])
-            print("Sum true:", batch_proportions.sum().item())
-            print("Sum estimated (s):", student_proportions.sum().item())
-            print("Sum estimated (t):", teacher_proportions.sum().item())
-            print(f"DINO Loss: {dino_loss_value.item():.4f}")
-            print(f"Proportion Loss: {proportion_loss_value.item():.4f}")
 
         # student update
         optimizer.zero_grad()
@@ -399,8 +352,6 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
         # logging
         torch.cuda.synchronize()
         metric_logger.update(loss=loss.item())
-        metric_logger.update(dino_loss=dino_loss_value.item())
-        metric_logger.update(proportion_loss=proportion_loss_value.item())
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
         metric_logger.update(wd=optimizer.param_groups[0]["weight_decay"])
     # gather the stats from all processes
@@ -409,94 +360,59 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
-class ProportionAwareDINOLoss(nn.Module):
+class DINOLoss(nn.Module):
     def __init__(self, out_dim, ncrops, warmup_teacher_temp, teacher_temp,
-                 warmup_teacher_temp_epochs, nepochs, num_classes, 
-                 student_temp=0.1, center_momentum=0.9, 
-                 proportion_weight=1.0, proportion_temp=0.1):
+                 warmup_teacher_temp_epochs, nepochs, student_temp=0.1,
+                 center_momentum=0.9):
         super().__init__()
         self.student_temp = student_temp
         self.center_momentum = center_momentum
         self.ncrops = ncrops
-        self.proportion_weight = proportion_weight
-        self.proportion_temp = proportion_temp
         self.register_buffer("center", torch.zeros(1, out_dim))
-
-        '''
-        # Añadir proyector de proporciones dedicado
-        self.proportion_projector = nn.Sequential(
-            nn.Linear(out_dim, 2048),
-            nn.GELU(),
-            nn.Linear(2048, num_classes),
-            nn.BatchNorm1d(num_classes)
-        )
-        '''
-
-        self.proportion_projector = nn.Linear(out_dim, num_classes)
-        
+        # we apply a warm up for the teacher temperature because
+        # a too high temperature makes the training instable at the beginning
         self.teacher_temp_schedule = np.concatenate((
             np.linspace(warmup_teacher_temp,
-                       teacher_temp, warmup_teacher_temp_epochs),
+                        teacher_temp, warmup_teacher_temp_epochs),
             np.ones(nepochs - warmup_teacher_temp_epochs) * teacher_temp
         ))
 
-    def forward(self, student_output, teacher_output, epoch, batch_proportions):
-        # Pérdida DINO original
+    def forward(self, student_output, teacher_output, epoch):
+        """
+        Cross-entropy between softmax outputs of the teacher and student networks.
+        """
         student_out = student_output / self.student_temp
         student_out = student_out.chunk(self.ncrops)
 
+        # teacher centering and sharpening
         temp = self.teacher_temp_schedule[epoch]
         teacher_out = F.softmax((teacher_output - self.center) / temp, dim=-1)
         teacher_out = teacher_out.detach().chunk(2)
 
-        dino_loss = 0
+        total_loss = 0
         n_loss_terms = 0
         for iq, q in enumerate(teacher_out):
             for v in range(len(student_out)):
                 if v == iq:
+                    # we skip cases where student and teacher operate on the same view
                     continue
                 loss = torch.sum(-q * F.log_softmax(student_out[v], dim=-1), dim=-1)
-                dino_loss += loss.mean()
+                total_loss += loss.mean()
                 n_loss_terms += 1
-        dino_loss /= n_loss_terms
-
-        # Proyección y pérdida de proporciones
-        all_student_features = torch.cat(student_out, dim=0)
-        all_teacher_features = torch.cat(teacher_out, dim=0)
-        
-        # Predicciones del estudiante
-        student_class_logits = self.proportion_projector(all_student_features)
-        student_class_predictions = F.softmax(student_class_logits / self.proportion_temp, dim=-1)
-        student_proportions = torch.mean(student_class_predictions, dim=0)
-        
-        # Predicciones del profesor
-        teacher_class_logits = self.proportion_projector(all_teacher_features)
-        teacher_class_predictions = F.softmax(teacher_class_logits / self.proportion_temp, dim=-1)
-        teacher_proportions = torch.mean(teacher_class_predictions, dim=0)
-        
-        proportion_loss = F.kl_div(
-            student_proportions.log(),
-            batch_proportions,
-            reduction='batchmean'
-        )
-
+        total_loss /= n_loss_terms
         self.update_center(teacher_output)
-        
-        total_loss = dino_loss + self.proportion_weight * proportion_loss
-        
-        return {
-            'total_loss': total_loss,
-            'dino_loss': dino_loss,
-            'proportion_loss': proportion_loss,
-            'student_proportions': student_proportions,
-            'teacher_proportions': teacher_proportions
-        }
-    
+        return total_loss
+
     @torch.no_grad()
     def update_center(self, teacher_output):
+        """
+        Update center used for teacher output.
+        """
         batch_center = torch.sum(teacher_output, dim=0, keepdim=True)
         dist.all_reduce(batch_center)
         batch_center = batch_center / (len(teacher_output) * dist.get_world_size())
+
+        # ema update
         self.center = self.center * self.center_momentum + batch_center * (1 - self.center_momentum)
 
 
