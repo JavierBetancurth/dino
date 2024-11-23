@@ -348,7 +348,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
             true_proportions = calculate_class_proportions_in_batch(labels, data_loader.dataset)
             
             # Calcular la pérdida
-            loss_llp = = llp_loss(student_output, teacher_output, true_proportions)
+            loss_llp = llp_loss(student_output, teacher_output, true_proportions)
 
             # Combinar las pérdidas
             loss = loss_dino + loss_llp
