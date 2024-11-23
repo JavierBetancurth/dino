@@ -221,6 +221,14 @@ def train_dino(args):
         args.epochs,
     ).cuda()
 
+    llp_loss = LLPLoss(
+        args.out_dim,
+        num_classes = 10,
+        mode='soft',
+        alpha=0.5,
+        tau=1.0,
+    ).cuda()
+        
     # ============ preparing optimizer ... ============
     params_groups = utils.get_params_groups(student)
     if args.optimizer == "adamw":
@@ -317,7 +325,13 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
         with torch.cuda.amp.autocast(fp16_scaler is not None):
             teacher_output = teacher(images[:2])  # only the 2 global views pass through the teacher
             student_output = student(images)
-            loss = dino_loss(student_output, teacher_output, epoch)
+            loss_dino = dino_loss(student_output, teacher_output, epoch)
+            
+            # Calcular la pérdida
+            loss_llp = = llp_loss(student_output, teacher_output, true_proportions)
+
+            # Combinar las pérdidas
+            loss = loss_dino + loss_llp
 
         if not math.isfinite(loss.item()):
             print("Loss is {}, stopping training".format(loss.item()), force=True)
@@ -358,7 +372,6 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
-
 
 class DINOLoss(nn.Module):
     def __init__(self, out_dim, ncrops, warmup_teacher_temp, teacher_temp,
@@ -415,6 +428,72 @@ class DINOLoss(nn.Module):
         # ema update
         self.center = self.center * self.center_momentum + batch_center * (1 - self.center_momentum)
 
+class LLPLoss(nn.Module):
+    """
+    Loss function for Learning from Label Proportions (LLP), comparing
+    proportions from the teacher and student networks, and optionally comparing
+    the student outputs to the true proportions in 'soft' or 'hard' mode.
+    """
+    def __init__(self, out_dim: int, num_classes: int, mode: str, alpha: float, tau: float):
+        """
+        Args:
+            out_dim: The output dimension of both teacher and student models.
+            num_classes: Number of target classes.
+            mode: 'soft' for KL divergence, 'hard' for cross-entropy.
+            alpha: Weight for the true proportions loss when combined with teacher-student loss.
+            tau: Temperature scaling for 'soft' mode.
+        """
+        super().__init__()
+        assert mode in ['soft', 'hard'], "Mode must be 'soft' or 'hard'."
+        self.mode = mode
+        self.alpha = alpha
+        self.tau = tau
+
+        # Linear projection from model outputs to class probabilities
+        self.student_to_classes = nn.Linear(out_dim, num_classes)
+        self.teacher_to_classes = nn.Linear(out_dim, num_classes)
+
+    def forward(self, student_outputs, teacher_outputs, true_proportions):
+        """
+        Args:
+            student_outputs: Predictions from the student model (logits in `out_dim` space).
+            teacher_outputs: Predictions from the teacher model (logits in `out_dim` space).
+            true_proportions: Target proportions for the batch (1D tensor with class proportions).
+        """
+        # Project outputs to class probabilities
+        student_outputs = self.student_to_classes(student_outputs)
+        teacher_outputs = self.teacher_to_classes(teacher_outputs)
+
+        # Compute proportions
+        teacher_probs = F.softmax(teacher_outputs, dim=1)
+        teacher_proportions = teacher_probs.mean(dim=0)  # Average over the batch
+
+        student_probs = F.softmax(student_outputs, dim=1)
+        student_proportions = student_probs.mean(dim=0)  # Average over the batch
+
+        # Compare teacher proportions with student proportions
+        teacher_student_loss = F.mse_loss(student_proportions, teacher_proportions)
+
+        # Compare student proportions with true proportions
+        if self.mode == 'soft':
+            true_loss = F.kl_div(
+                student_proportions.log(),  # Log probabilities of the student
+                true_proportions,  # True proportions as a probability distribution
+                reduction='batchmean'
+            )
+        elif self.mode == 'hard':
+            # Scale true proportions to batch size and create pseudo-labels
+            batch_size = student_outputs.size(0)
+            hard_targets = (true_proportions * batch_size).long()
+            hard_targets = torch.repeat_interleave(
+                torch.arange(len(true_proportions), device=student_outputs.device),
+                hard_targets
+            )
+            true_loss = F.cross_entropy(student_outputs, hard_targets)
+
+        # Combine losses with alpha weighting
+        total_loss = teacher_student_loss + self.alpha * true_loss
+        return total_loss
 
 class DataAugmentationDINO(object):
     def __init__(self, global_crops_scale, local_crops_scale, local_crops_number):
