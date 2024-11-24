@@ -223,7 +223,7 @@ def train_dino(args):
 
     llp_loss = LLPLoss(
         args.out_dim,
-        num_classes = 7,
+        num_classes = 10,
         mode='soft',
         alpha=0.5,
         tau=1.0,
