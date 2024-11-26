@@ -506,10 +506,10 @@ class LLPLoss(nn.Module):
             )
         elif self.mode == 'hard':
             # Scale true proportions to batch size and create pseudo-labels
-            batch_size = student_outputs.size(0)
+            batch_size = student_output.size(0)
             hard_targets = (true_proportions * batch_size).long()
             hard_targets = torch.repeat_interleave(
-                torch.arange(len(true_proportions), device=student_outputs.device),
+                torch.arange(len(true_proportions), device=student_output.device),
                 hard_targets
             )
             true_loss = F.cross_entropy(student_output, hard_targets)
