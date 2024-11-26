@@ -14,7 +14,7 @@ from torchvision import transforms as pth_transforms
 from torchvision import models as torchvision_models
 
 # from torchmetrics.classification import MulticlassPrecision, MulticlassRecall, MulticlassF1Score
-from torchmetrics import Precision, Recall, F1Score,ConfusionMatrix
+from torchmetrics import Precision, Recall, F1Score, ConfusionMatrix
 
 import utils.utils as utils
 import utils.vision_transformer as vits
