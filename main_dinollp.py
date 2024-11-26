@@ -512,7 +512,7 @@ class LLPLoss(nn.Module):
                 torch.arange(len(true_proportions), device=student_outputs.device),
                 hard_targets
             )
-            true_loss = F.cross_entropy(student_outputs, hard_targets)
+            true_loss = F.cross_entropy(student_output, hard_targets)
 
         # Combine losses with alpha weighting
         total_loss = teacher_student_loss + self.alpha * true_loss
