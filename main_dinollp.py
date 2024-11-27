@@ -504,6 +504,15 @@ class LLPLoss(nn.Module):
                 true_proportions,  # True proportions as a probability distribution
                 reduction='batchmean'
             )
+        elif self.mode == 'hard':
+            # Scale true proportions to batch size and create pseudo-labels
+            batch_size = teacher_output.size(0)
+            hard_targets = (true_proportions * batch_size).long()
+            hard_targets = torch.repeat_interleave(
+                torch.arange(len(true_proportions), device=teacher_output.device),
+                hard_targets
+            )
+            true_loss = F.cross_entropy(teacher_output, hard_targets)
         '''
         elif self.mode == 'hard':
             # Scale true proportions to batch size and create pseudo-labels
@@ -515,15 +524,6 @@ class LLPLoss(nn.Module):
             )
             true_loss = F.cross_entropy(student_output, hard_targets)
         '''
-        elif self.mode == 'hard':
-            # Scale true proportions to batch size and create pseudo-labels
-            batch_size = teacher_output.size(0)
-            hard_targets = (true_proportions * batch_size).long()
-            hard_targets = torch.repeat_interleave(
-                torch.arange(len(true_proportions), device=teacher_output.device),
-                hard_targets
-            )
-            true_loss = F.cross_entropy(teacher_output, hard_targets)
 
         # Combine losses with alpha weighting
         total_loss = teacher_student_loss + self.alpha * true_loss
