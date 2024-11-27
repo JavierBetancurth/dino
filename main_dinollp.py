@@ -224,7 +224,7 @@ def train_dino(args):
     llp_loss = LLPLoss(
         args.out_dim,
         num_classes = 10,
-        mode='hard',
+        mode='soft',
         alpha=0.5,
         tau=1.0,
     ).cuda()
@@ -500,7 +500,7 @@ class LLPLoss(nn.Module):
         # Compare student proportions with true proportions
         if self.mode == 'soft':
             true_loss = F.kl_div(
-                student_proportions.log(),  # Log probabilities of the student
+                teacher_proportions.log(),  # Log probabilities of the student
                 true_proportions,  # True proportions as a probability distribution
                 reduction='batchmean'
             )
