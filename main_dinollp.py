@@ -224,7 +224,7 @@ def train_dino(args):
     llp_loss = LLPLoss(
         args.out_dim,
         num_classes = 10,
-        mode='hard',
+        mode='soft',
         alpha=0.5,
         tau=1.0,
     ).cuda()
@@ -415,7 +415,7 @@ class DINOLoss(nn.Module):
 
     def forward(self, student_output, teacher_output, epoch):
         """
-        Cross-entropy between softmax outputs of the teacher and student networks.
+        Cross-entropy between max outputs of the teacher and student networks.
         """
         student_out = student_output / self.student_temp
         student_out = student_out.chunk(self.ncrops)
