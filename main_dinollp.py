@@ -500,7 +500,7 @@ class LLPLoss(nn.Module):
         # Compare student proportions with true proportions
         if self.mode == 'soft':
             true_loss = F.kl_div(
-                teacher_proportions.log(),  # Log probabilities of the student
+                student_proportions.log(),  # Log probabilities of the student
                 true_proportions,  # True proportions as a probability distribution
                 reduction='batchmean'
             )
